@@ -1,0 +1,25 @@
+[package]
+name = "json-stream"
+version = "0.1.0"
+edition = "2021"
+authors = ["d0nut <d0nut@resync.gg>"]
+license = "LICENSE.txt"
+homepage = "https://resync.gg"
+repository = "https://github.com/resyncgg/json-stream"
+description = "A library to parse Newline Delimited JSON values from a byte stream"
+keywords = ["json", "stream", "ndjson", "jsonl", "axum"]
+
+[dependencies]
+serde = { version = "1.0.163", features = ["derive"] }
+serde_json = "1.0.96"
+pin-project = "1.1.0"
+tracing = "0.1.37"
+futures = "0.3.28"
+
+[dev-dependencies]
+tokio = { version = "1.12.0", features = ["macros", "rt-multi-thread"] }
+criterion = { version = "0.4.0", features = ["async_tokio"] }
+
+[[bench]]
+name = "json_stream"
+harness = false
