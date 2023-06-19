@@ -169,7 +169,9 @@ impl<T: DeserializeOwned, S, B, E> Stream for JsonStream<T, S>
             // room is available, so let's add the chunk
             this.byte_buffer.extend(&*next_chunk);
 
-            // we know that all of the data will be located in the first slice as we've not removed data from the front yet
+            // because we inserted more data into the VecDeque, we need to reassure the layout of it
+            this.byte_buffer.make_contiguous();
+            // we know that all of the data will be located in the first slice
             let (buffer, _) = this.byte_buffer.as_slices();
             let mut json_iter = Deserializer::from_slice(buffer).into_iter::<T>();
             let mut last_read_pos = 0;
