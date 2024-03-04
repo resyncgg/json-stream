@@ -28,14 +28,14 @@
 //!     }
 //! }
 //! ```
+use futures::Stream;
+use pin_project::pin_project;
+use serde::de::DeserializeOwned;
+use serde_json::Deserializer;
 use std::collections::VecDeque;
 use std::ops::Deref;
 use std::pin::Pin;
-use std::task::{Context, Poll, ready};
-use futures::Stream;
-use serde::de::DeserializeOwned;
-use pin_project::pin_project;
-use serde_json::Deserializer;
+use std::task::{ready, Context, Poll};
 use tracing::trace;
 
 // should be 2^n - 1 for VecDeque to work efficiently
@@ -85,9 +85,12 @@ impl<T, S: Unpin> JsonStream<T, S> {
         Self {
             stream,
             entry_buffer: Vec::new(),
-            byte_buffer: VecDeque::with_capacity(std::cmp::min(DEFAULT_BUFFER_CAPACITY, max_capacity)),
+            byte_buffer: VecDeque::with_capacity(std::cmp::min(
+                DEFAULT_BUFFER_CAPACITY,
+                max_capacity,
+            )),
             finished: false,
-            max_buffer_capacity: max_capacity
+            max_buffer_capacity: max_capacity,
         }
     }
 
@@ -115,10 +118,10 @@ impl<T, S: Unpin> JsonStream<T, S> {
 }
 
 impl<T: DeserializeOwned, S, B, E> Stream for JsonStream<T, S>
-    where
-        T: DeserializeOwned,
-        B: Deref<Target = [u8]>,
-        S: Stream<Item = Result<B, E>> + Unpin
+where
+    T: DeserializeOwned,
+    B: Deref<Target = [u8]>,
+    S: Stream<Item = Result<B, E>> + Unpin,
 {
     type Item = Result<T, E>;
 
@@ -137,37 +140,40 @@ impl<T: DeserializeOwned, S, B, E> Stream for JsonStream<T, S>
             }
 
             // try to fetch the next chunk
-            let next_chunk = loop {
+            loop {
                 match ready!(this.stream.as_mut().poll_next(cx)) {
-                    Some(Ok(chunk)) => break chunk,
+                    Some(Ok(chunk)) => {
+                        // if there is no room for this chunk, we should give up
+                        match this.byte_buffer.len().checked_add(chunk.len()) {
+                            Some(new_size) => {
+                                if new_size > DEFAULT_MAX_BUFFER_CAPACITY {
+                                    // no room for this chunk
+                                    self.finish();
+                                    return Poll::Ready(None);
+                                } else {
+                                    // room is available, so let's add the chunk
+                                    this.byte_buffer.extend(&*chunk);
+
+                                    break;
+                                }
+                            }
+                            None => {
+                                // overflow occurred
+                                self.finish();
+                                return Poll::Ready(None);
+                            }
+                        }
+                    }
                     Some(Err(err)) => {
                         self.finish();
                         return Poll::Ready(Some(Err(err)));
-                    },
+                    }
                     None => {
                         self.finish();
                         return Poll::Ready(None);
                     }
                 }
-            };
-
-            // if there is no room for this chunk, we should give up
-            match this.byte_buffer.len().checked_add(next_chunk.len()) {
-                Some(new_size) if new_size > DEFAULT_MAX_BUFFER_CAPACITY => {
-                    // no room for this chunk
-                    self.finish();
-                    return Poll::Ready(None);
-                },
-                None => {
-                    // overflow occurred
-                    self.finish();
-                    return Poll::Ready(None);
-                }
-                _ => {}
             }
-
-            // room is available, so let's add the chunk
-            this.byte_buffer.extend(&*next_chunk);
 
             // because we inserted more data into the VecDeque, we need to reassure the layout of it
             this.byte_buffer.make_contiguous();
@@ -182,14 +188,14 @@ impl<T: DeserializeOwned, S, B, E> Stream for JsonStream<T, S>
                     Some(Ok(entry)) => {
                         last_read_pos = json_iter.byte_offset();
                         this.entry_buffer.push(entry);
-                    },
+                    }
                     // if there was an error, log it but move on because this could be a partial entry
                     Some(Err(err)) => {
                         trace!(err = ?err, "failed to parse json entry");
-                        break
-                    },
+                        break;
+                    }
                     // nothing left then we move on
-                    None => break
+                    None => break,
                 }
             }
 
