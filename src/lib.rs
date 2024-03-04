@@ -200,13 +200,13 @@ where
                     }
                     // if there was an error, log it but move on because this could be a partial entry
                     Some(Err(err)) => {
-                        if self.respect_eof
+                        if *this.respect_eof
                             && err.is_eof()
                             && this.entry_buffer.is_empty()
                             && buffer.is_empty()
                         {
                             self.finish();
-                            return Poll::Ready(Some(Err(err)));
+                            return Poll::Ready(None);
                         } else {
                             trace!(err = ?err, "failed to parse json entry");
                             break;
